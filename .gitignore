@@ -1,0 +1,17 @@
+# Python virtual environment
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Environment variables & secrets (NEVER COMMIT THESE)
+.env
+*.env
+
+# IDE / Editor folders
+.vscode/
+.idea/
+
+# Node / Next.js (for later)
+node_modules/
+.next/
