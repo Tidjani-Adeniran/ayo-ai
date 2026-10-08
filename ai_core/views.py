@@ -16,6 +16,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 
 from .models import Conversation, ChatMessage, Document, DocumentChunk
 from .serializers import DocumentSerializer
+from .utils import search_similar_chunks
 
 load_dotenv()
 
@@ -71,8 +72,9 @@ def register_view(request):
 @permission_classes([IsAuthenticated])
 def chat_view(request):
     """
-    Authenticated chat endpoint. Saves message history to DB
-    and injects recent conversation context into Gemini.
+    Authenticated chat endpoint. Saves message history to DB,
+    retrieves top matching document excerpts (RAG), and generates
+    a structured response using Gemini.
     """
     user_message = request.data.get('message', '')
     conversation_id = request.data.get('conversation_id', None)
@@ -108,23 +110,32 @@ def chat_view(request):
         content=user_message
     )
 
-    # Fetch recent chat context (up to last 6 messages) for context continuity
+    # Fetch recent chat context (up to last 6 messages) for conversation flow
     recent_messages = conversation.messages.order_by('-timestamp')[:6]
     history_context = ""
     for msg in reversed(list(recent_messages)):
         history_context += f"{msg.sender.upper()}: {msg.content}\n"
 
-    # Define system instructions to keep persona grounded, warm, and natural
+    # Semantic search: Retrieve top 2 document chunks related to the user message
+    matching_chunks = search_similar_chunks(user_message, top_k=2)
+    doc_context = ""
+    if matching_chunks:
+        doc_context = "Relevant Uploaded Document Context:\n"
+        for chunk in matching_chunks:
+            doc_context += f"--- [{chunk['document_title']}] (Similarity: {chunk['similarity_score']:.2f}) ---\n{chunk['content']}\n\n"
+
+    # Persona and grounding instructions
     system_instruction = (
         "You are ayo-ai, a warm, empathetic, non-clinical African wellbeing companion. "
         "Always remain in persona as ayo-ai. "
         "Never say 'I am an AI created by Google', 'I am a robot', or 'As an artificial intelligence'. "
-        "When the user engages in small talk or simple greetings (e.g., 'hey', 'how are you doing'), "
-        "keep your response lightweight, friendly, and human-like. Do not over-explain or give long advice unless the user is sharing a specific problem or distress."
+        "When relevant uploaded document context is provided, use it to accurately inform your guidance. "
+        "When the user engages in small talk or simple greetings, keep your response lightweight and human-like."
     )
 
     client = genai.Client(api_key=api_key)
     prompt = (
+        f"{doc_context}"
         f"Recent Conversation History:\n{history_context}\n"
         f"Respond naturally to the user's latest input: {user_message}"
     )
@@ -153,7 +164,7 @@ def chat_view(request):
 
             return Response({
                 "conversation_id": conversation.id,
-                "structured_data": response.text,
+                "structured_data": json.loads(response.text) if isinstance(response.text, str) else response.text,
                 "model_used": model_name
             }, status=status.HTTP_200_OK)
 
@@ -169,6 +180,10 @@ def chat_view(request):
 
 
 class DocumentUploadView(APIView):
+    """
+    Handles PDF document uploads, triggers text extraction, chunking, 
+    and vector embedding generation.
+    """
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
@@ -177,12 +192,20 @@ class DocumentUploadView(APIView):
         if serializer.is_valid():
             doc = serializer.save(uploaded_by=request.user)
 
-            # Delegate text extraction & chunk generation to the model method
-            doc.process_and_chunk()
+            try:
+                # Delegate text extraction, chunking, and embedding creation to model method
+                doc.process_and_chunk()
+            except Exception as e:
+                doc.status = 'failed'
+                doc.save()
+                return Response(
+                    {"error": f"Document processing error: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
             if doc.status == 'failed':
                 return Response(
-                    {"error": "Could not extract text from the uploaded document. It may be an image-only PDF or empty."},
+                    {"error": "Could not extract text or generate embeddings. Ensure the PDF contains selectable text and not scanned images."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
