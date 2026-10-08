@@ -11,8 +11,11 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.views import APIView
+from rest_framework.parsers import MultiPartParser, FormParser
 
-from .models import Conversation, ChatMessage
+from .models import Conversation, ChatMessage, Document, DocumentChunk
+from .serializers import DocumentSerializer
 
 load_dotenv()
 
@@ -35,6 +38,7 @@ class AyoWellbeingResponse(BaseModel):
     suggested_followups: list[str] = Field(
         description="2 short follow-up options for the user to tap next."
     )
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -155,10 +159,40 @@ def chat_view(request):
 
         except Exception as e:
             last_error = e
-            print(f" ERROR on {model_name}: {e}")
+            print(f"❌ ERROR on {model_name}: {e}")
             continue
 
     return Response(
         {"error": f"Ayo AI unavailable. Error: {str(last_error)}"},
         status=status.HTTP_503_SERVICE_UNAVAILABLE
     )
+
+
+class DocumentUploadView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, *args, **kwargs):
+        serializer = DocumentSerializer(data=request.data)
+        if serializer.is_valid():
+            doc = serializer.save(uploaded_by=request.user)
+
+            # Delegate text extraction & chunk generation to the model method
+            doc.process_and_chunk()
+
+            if doc.status == 'failed':
+                return Response(
+                    {"error": "Could not extract text from the uploaded document. It may be an image-only PDF or empty."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            return Response(
+                {
+                    "message": "Document uploaded and chunked successfully!",
+                    "chunks_created": doc.chunks.count(),
+                    "document": serializer.data
+                },
+                status=status.HTTP_201_CREATED
+            )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
