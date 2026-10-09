@@ -77,6 +77,7 @@ def generate_embedding(text: str) -> list[float]:
         print(f"Embedding API Error: {e}")
         raise e
 
+
 def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
     """
     Calculates cosine similarity between two equal-length numerical vectors.
@@ -98,7 +99,7 @@ def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
 
 def search_similar_chunks(query: str, top_k: int = 3) -> list[dict]:
     """
-    1. Converts user prompt into a query vector using text-embedding-004.
+    1. Converts user prompt into a query vector.
     2. Compares query vector against all saved DocumentChunks using cosine similarity.
     3. Returns the top_k highest scoring chunks.
     """
@@ -115,7 +116,7 @@ def search_similar_chunks(query: str, top_k: int = 3) -> list[dict]:
         score = cosine_similarity(query_vector, chunk.embedding)
         scored_chunks.append({
             'chunk_id': chunk.id,
-            'document_title': chunk.document.title,
+            'document_title': chunk.document.title if chunk.document else "Uploaded Document",
             'chunk_index': chunk.chunk_index,
             'content': chunk.content,
             'similarity_score': score
@@ -125,3 +126,46 @@ def search_similar_chunks(query: str, top_k: int = 3) -> list[dict]:
     scored_chunks.sort(key=lambda x: x['similarity_score'], reverse=True)
 
     return scored_chunks[:top_k]
+
+
+def generate_rag_response(user_query: str, top_k: int = 3) -> str:
+    """
+    Phase 9 RAG Pipeline:
+    1. Retrieves top_k relevant document chunks via vector search.
+    2. Constructs a context-grounded system prompt.
+    3. Generates a grounded response via Gemini LLM.
+    """
+    client = get_genai_client()
+    
+    # 1. Retrieve relevant chunks
+    matched_chunks = search_similar_chunks(user_query, top_k=top_k)
+    
+    if not matched_chunks:
+        context_block = "No reference document chunks found."
+    else:
+        context_block = "\n\n---\n\n".join(
+            [f"[Document Chunk {i+1}]: {item['content']}" for i, item in enumerate(matched_chunks)]
+        )
+
+    # 2. Build the RAG Grounded System Prompt
+    rag_prompt = f"""You are ayo-ai, an empathetic and culturally grounded wellbeing companion.
+Answer the user's question using ONLY the provided context passages below.
+If the context does not contain enough information to answer fully, answer using what is available and gently note any limitation.
+
+CONTEXT PASSAGES:
+{context_block}
+
+USER QUESTION:
+{user_query}
+
+ANSWER:"""
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=rag_prompt,
+        )
+        return response.text
+    except Exception as e:
+        print(f"RAG Generation Error: {e}")
+        return "I encountered an error while referencing my knowledge base. Please try again."

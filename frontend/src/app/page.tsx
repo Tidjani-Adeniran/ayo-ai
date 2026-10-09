@@ -7,6 +7,8 @@ import ChatBubble, {
   StructuredResponse,
 } from "@/components/ChatBubble";
 import ChatInput from "@/components/ChatInput";
+import DocumentUploadModal from "@/components/DocumentUploadModal";
+import Sidebar from "@/components/Sidebar";
 
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
@@ -24,6 +26,10 @@ export default function Home() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Modal & Drawer states
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Invisible DOM Ref target for auto-scrolling
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -109,6 +115,40 @@ export default function Home() {
     ]);
   };
 
+  // Load selected conversation from backend
+  const loadConversation = async (convId: number) => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:8000/api/conversations/${convId}/`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setConversationId(data.conversation_id);
+        setMessages(data.messages);
+      }
+    } catch (err) {
+      console.error("Error loading chat session:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Start new conversation session
+  const startNewChat = () => {
+    setConversationId(null);
+    setMessages([
+      {
+        sender: "ayo",
+        text: "New conversation started! How can I support your wellbeing today?",
+      },
+    ]);
+  };
+
   const sendMessage = async (messageText?: string) => {
     const textToSend = messageText || input;
     if (!textToSend.trim() || loading || !token) return;
@@ -143,13 +183,36 @@ export default function Home() {
           setConversationId(data.conversation_id);
         }
 
+        // 1. Handle structured responses cleanly with source document citations
         if (data.structured_data) {
-          const parsed: StructuredResponse = JSON.parse(data.structured_data);
-          setMessages((prev) => [
-            ...prev,
-            { sender: "ayo", structured: parsed },
-          ]);
+          try {
+            const parsed: StructuredResponse =
+              typeof data.structured_data === "string"
+                ? JSON.parse(data.structured_data)
+                : data.structured_data;
+
+            setMessages((prev) => [
+              ...prev,
+              {
+                sender: "ayo",
+                structured: parsed,
+                sources: data.sources || [],
+              },
+            ]);
+            return;
+          } catch (parseErr) {
+            console.warn("Failed to parse structured_data:", parseErr);
+          }
         }
+
+        // 2. Fallback to standard text responses
+        const textReply =
+          data.response || data.reply || data.message || "Response received.";
+
+        setMessages((prev) => [
+          ...prev,
+          { sender: "ayo", text: textReply, sources: data.sources || [] },
+        ]);
       } else {
         setMessages((prev) => [
           ...prev,
@@ -157,6 +220,7 @@ export default function Home() {
         ]);
       }
     } catch (err) {
+      console.error("Chat Error:", err);
       setMessages((prev) => [
         ...prev,
         { sender: "ayo", text: "Server connection error." },
@@ -177,12 +241,26 @@ export default function Home() {
           </p>
         </div>
         {token && (
-          <button
-            onClick={handleLogout}
-            className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            Log Out
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+            >
+              <span>📜</span> History
+            </button>
+            <button
+              onClick={() => setIsUploadOpen(true)}
+              className="text-xs bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/40 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+            >
+              <span>📂</span> Upload PDF
+            </button>
+            <button
+              onClick={handleLogout}
+              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Log Out
+            </button>
+          </div>
         )}
       </header>
 
@@ -230,6 +308,32 @@ export default function Home() {
           </>
         )}
       </section>
+
+      {/* Document Upload Modal Component */}
+      <DocumentUploadModal
+        isOpen={isUploadOpen}
+        onClose={() => setIsUploadOpen(false)}
+        token={token}
+        onUploadSuccess={(chunkCount, title) => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              sender: "ayo",
+              text: `Knowledge base updated! Successfully extracted "${title}" into ${chunkCount} vector chunks. You can now ask me questions about it.`,
+            },
+          ]);
+        }}
+      />
+
+      {/* Conversation History Sidebar Component */}
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        token={token}
+        activeConversationId={conversationId}
+        onSelectConversation={(id) => loadConversation(id)}
+        onNewChat={startNewChat}
+      />
     </main>
   );
 }

@@ -1,5 +1,12 @@
 "use client";
 
+import React, { useState } from "react";
+
+export interface CitationSource {
+  title: string;
+  score: number;
+}
+
 export interface StructuredResponse {
   greeting: string;
   reflection: string;
@@ -12,6 +19,7 @@ export interface Message {
   sender: "user" | "ayo";
   text?: string;
   structured?: StructuredResponse;
+  sources?: CitationSource[];
 }
 
 interface ChatBubbleProps {
@@ -20,6 +28,7 @@ interface ChatBubbleProps {
 }
 
 export default function ChatBubble({ msg, sendMessage }: ChatBubbleProps) {
+  const [showSources, setShowSources] = useState(false);
   const isUser = msg.sender === "user";
 
   return (
@@ -68,6 +77,44 @@ export default function ChatBubble({ msg, sendMessage }: ChatBubbleProps) {
                   >
                     💬 {chip}
                   </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Source Citations Drawer */}
+        {!isUser && msg.sources && msg.sources.length > 0 && (
+          <div className="pt-2 border-t border-slate-600/50">
+            <button
+              onClick={() => setShowSources(!showSources)}
+              className="text-[11px] text-amber-400/90 hover:text-amber-300 flex items-center gap-1 font-medium transition"
+            >
+              <span>📚</span>
+              <span>
+                {showSources
+                  ? "Hide Sources"
+                  : `Grounded in ${msg.sources.length} Document Source${
+                      msg.sources.length > 1 ? "s" : ""
+                    }`}
+              </span>
+              <span className="text-[9px]">{showSources ? "▲" : "▼"}</span>
+            </button>
+
+            {showSources && (
+              <div className="mt-2 space-y-1.5">
+                {msg.sources.map((src, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between text-[11px] bg-slate-800/80 border border-slate-600/50 rounded-lg px-2.5 py-1.5 text-slate-300"
+                  >
+                    <span className="truncate max-w-[200px] font-medium text-slate-200">
+                      📄 {src.title}
+                    </span>
+                    <span className="text-[10px] text-emerald-400 bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-800/50">
+                      {src.score}% match
+                    </span>
+                  </div>
                 ))}
               </div>
             )}

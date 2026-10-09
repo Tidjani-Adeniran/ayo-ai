@@ -74,7 +74,7 @@ def chat_view(request):
     """
     Authenticated chat endpoint. Saves message history to DB,
     retrieves top matching document excerpts (RAG), and generates
-    a structured response using Gemini.
+    a structured response using Gemini with source document citations.
     """
     user_message = request.data.get('message', '')
     conversation_id = request.data.get('conversation_id', None)
@@ -119,10 +119,18 @@ def chat_view(request):
     # Semantic search: Retrieve top 2 document chunks related to the user message
     matching_chunks = search_similar_chunks(user_message, top_k=2)
     doc_context = ""
+    sources_used = []
+
     if matching_chunks:
         doc_context = "Relevant Uploaded Document Context:\n"
         for chunk in matching_chunks:
             doc_context += f"--- [{chunk['document_title']}] (Similarity: {chunk['similarity_score']:.2f}) ---\n{chunk['content']}\n\n"
+            
+            # Format sources for frontend citation badges
+            sources_used.append({
+                "title": chunk["document_title"],
+                "score": round(chunk["similarity_score"] * 100, 1)  # Convert to percentage
+            })
 
     # Persona and grounding instructions
     system_instruction = (
@@ -165,6 +173,7 @@ def chat_view(request):
             return Response({
                 "conversation_id": conversation.id,
                 "structured_data": json.loads(response.text) if isinstance(response.text, str) else response.text,
+                "sources": sources_used,
                 "model_used": model_name
             }, status=status.HTTP_200_OK)
 
@@ -177,6 +186,66 @@ def chat_view(request):
         {"error": f"Ayo AI unavailable. Error: {str(last_error)}"},
         status=status.HTTP_503_SERVICE_UNAVAILABLE
     )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_conversations_view(request):
+    """Lists all past conversations for the authenticated user for sidebar navigation."""
+    conversations = Conversation.objects.filter(user=request.user).order_by('-created_at')
+    data = [
+        {
+            "id": conv.id,
+            "title": conv.title or f"Chat #{conv.id}",
+            "created_at": conv.created_at.strftime("%Y-%m-%d %H:%M")
+        }
+        for conv in conversations
+    ]
+    return Response(data, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_conversation_messages_view(request, conversation_id):
+    """Retrieves full message history for a given conversation session."""
+    try:
+        conversation = Conversation.objects.get(id=conversation_id, user=request.user)
+    except Conversation.DoesNotExist:
+        return Response({"error": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    messages = conversation.messages.order_by('timestamp')
+    formatted_messages = []
+    
+    for msg in messages:
+        structured_data = None
+        if msg.sender == 'ayo':
+            try:
+                structured_data = json.loads(msg.content)
+            except (json.JSONDecodeError, TypeError):
+                structured_data = None
+
+        formatted_messages.append({
+            "sender": msg.sender,
+            "text": msg.content if not structured_data else None,
+            "structured": structured_data
+        })
+
+    return Response({
+        "conversation_id": conversation.id,
+        "messages": formatted_messages
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_conversation_view(request, conversation_id):
+    """Deletes a specific conversation session and all associated messages."""
+    try:
+        conversation = Conversation.objects.get(id=conversation_id, user=request.user)
+        conversation.delete()
+        return Response({"message": "Conversation deleted successfully."}, status=status.HTTP_200_OK)
+    except Conversation.DoesNotExist:
+        return Response({"error": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
 
 
 class DocumentUploadView(APIView):
