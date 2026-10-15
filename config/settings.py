@@ -47,6 +47,10 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     
+    # PostgreSQL & pgvector support
+    'django.contrib.postgres',
+    'pgvector.django',         
+    
     # Third-party packages
     'rest_framework',
     'rest_framework_simplejwt',
