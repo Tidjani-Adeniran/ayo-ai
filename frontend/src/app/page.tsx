@@ -75,6 +75,12 @@ export default function Home() {
         }),
       });
 
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        setAuthError("Server returned an invalid response format.");
+        return;
+      }
+
       const data = await res.json();
 
       if (!res.ok) {
@@ -126,7 +132,9 @@ export default function Home() {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-      if (res.ok) {
+
+      const contentType = res.headers.get("content-type");
+      if (res.ok && contentType && contentType.includes("application/json")) {
         const data = await res.json();
         setConversationId(data.conversation_id);
         setMessages(data.messages);
@@ -170,13 +178,28 @@ export default function Home() {
         }),
       });
 
-      const data = await res.json();
-
       if (res.status === 401) {
         handleLogout();
         setAuthError("Your session expired. Please log in again.");
         return;
       }
+
+      // Safely verify if response body is JSON before parsing
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const errorText = await res.text();
+        console.error("Non-JSON Response received from backend:", errorText);
+        setMessages((prev) => [
+          ...prev,
+          {
+            sender: "ayo",
+            text: "The server encountered an error processing your request. Please try again shortly.",
+          },
+        ]);
+        return;
+      }
+
+      const data = await res.json();
 
       if (res.ok) {
         if (data.conversation_id) {

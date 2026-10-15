@@ -1,7 +1,9 @@
 import os
 import math
+import pdfplumber
 from pypdf import PdfReader
 from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -17,17 +19,36 @@ def get_genai_client():
 
 
 def extract_text_from_pdf(file_path: str) -> str:
-    """Extracts raw text from all pages of a PDF file."""
+    """
+    Extracts raw text from all pages of a PDF file.
+    Uses pdfplumber as the primary parser for complex font encodings, falling back to pypdf.
+    """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found at path: {file_path}")
 
-    reader = PdfReader(file_path)
     extracted_text = ""
-    for page in reader.pages:
-        text = page.extract_text()
-        if text:
-            extracted_text += text + "\n"
-    
+
+    # Primary strategy: pdfplumber (best for custom font encodings and multi-column streams)
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    extracted_text += text + "\n"
+    except Exception as pdfplumber_err:
+        print(f"⚠️ pdfplumber extraction notice for {file_path}: {pdfplumber_err}")
+
+    # Fallback strategy: pypdf
+    if not extracted_text.strip():
+        try:
+            reader = PdfReader(file_path)
+            for page in reader.pages:
+                text = page.extract_text()
+                if text:
+                    extracted_text += text + "\n"
+        except Exception as pypdf_err:
+            print(f"⚠️ pypdf extraction notice for {file_path}: {pypdf_err}")
+
     return extracted_text.strip()
 
 
@@ -59,79 +80,68 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[st
 
 
 def generate_embedding(text: str) -> list[float]:
-    """Generates a vector embedding for a given text string using gemini-embedding-001."""
+    """Generates a 768-dimensional vector embedding using gemini-embedding-001."""
     if not text or not text.strip():
         return []
 
     client = get_genai_client()
 
     try:
+        # Use the correct current embedding model name with explicit output dimensionality if needed
         response = client.models.embed_content(
             model="gemini-embedding-001",
             contents=text,
+            config=types.EmbedContentConfig(output_dimensionality=768)
         )
         if hasattr(response, 'embeddings') and response.embeddings:
             return response.embeddings[0].values
         return []
     except Exception as e:
         print(f"Embedding API Error: {e}")
-        raise e
-
-
-def cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
-    """
-    Calculates cosine similarity between two equal-length numerical vectors.
-    Formula: (A · B) / (||A|| * ||B||)
-    Returns score between -1.0 (opposite) and 1.0 (identical meaning).
-    """
-    if not vec1 or not vec2 or len(vec1) != len(vec2):
-        return 0.0
-
-    dot_product = sum(a * b for a, b in zip(vec1, vec2))
-    magnitude_vec1 = math.sqrt(sum(a * a for a in vec1))
-    magnitude_vec2 = math.sqrt(sum(b * b for b in vec2))
-
-    if magnitude_vec1 == 0 or magnitude_vec2 == 0:
-        return 0.0
-
-    return dot_product / (magnitude_vec1 * magnitude_vec2)
+        # Return empty list gracefully to prevent breaking basic unindexed chats
+        return []
 
 
 def search_similar_chunks(query: str, top_k: int = 3) -> list[dict]:
     """
-    1. Converts user prompt into a query vector.
-    2. Compares query vector against all saved DocumentChunks using cosine similarity.
-    3. Returns the top_k highest scoring chunks.
+    1. Converts user prompt into a 768-dimensional query vector.
+    2. Queries Neon PostgreSQL using pgvector's native HNSW index (CosineDistance).
+    3. Returns top_k highest scoring chunks with similarity match percentages.
     """
+    from pgvector.django import CosineDistance
     from .models import DocumentChunk
 
     query_vector = generate_embedding(query)
     if not query_vector:
         return []
 
-    chunks = DocumentChunk.objects.exclude(embedding__isnull=True)
+    # Native pgvector HNSW query execution in Neon PostgreSQL
+    chunks = (
+        DocumentChunk.objects
+        .exclude(embedding__isnull=True)
+        .annotate(distance=CosineDistance('embedding', query_vector))
+        .order_by('distance')[:top_k]
+    )
 
-    scored_chunks = []
+    results = []
     for chunk in chunks:
-        score = cosine_similarity(query_vector, chunk.embedding)
-        scored_chunks.append({
+        # Convert cosine distance (0.0 = identical) to similarity score (1.0 = identical)
+        similarity = 1.0 - float(chunk.distance)
+        results.append({
             'chunk_id': chunk.id,
             'document_title': chunk.document.title if chunk.document else "Uploaded Document",
             'chunk_index': chunk.chunk_index,
             'content': chunk.content,
-            'similarity_score': score
+            'similarity_score': round(similarity, 4)
         })
 
-    # Sort in descending order (highest similarity first)
-    scored_chunks.sort(key=lambda x: x['similarity_score'], reverse=True)
-
-    return scored_chunks[:top_k]
+    return results
 
 
 def generate_rag_response(user_query: str, top_k: int = 3) -> str:
     """
     Phase 9 RAG Pipeline:
-    1. Retrieves top_k relevant document chunks via vector search.
+    1. Retrieves top_k relevant document chunks via native pgvector HNSW index.
     2. Constructs a context-grounded system prompt.
     3. Generates a grounded response via Gemini LLM.
     """

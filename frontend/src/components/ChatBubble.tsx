@@ -40,7 +40,7 @@ export default function ChatBubble({ msg, sendMessage }: ChatBubbleProps) {
             : "bg-slate-700 text-slate-100 rounded-bl-none border border-slate-600 space-y-3"
         }`}
       >
-        {msg.text && <p>{msg.text}</p>}
+        {msg.text && <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>}
 
         {msg.structured && (
           <div className="space-y-3">
@@ -67,19 +67,20 @@ export default function ChatBubble({ msg, sendMessage }: ChatBubbleProps) {
               </div>
             )}
 
-            {msg.structured.suggested_followups?.length > 0 && (
-              <div className="pt-2 border-t border-slate-600/50 flex flex-wrap gap-2">
-                {msg.structured.suggested_followups.map((chip, cIdx) => (
-                  <button
-                    key={cIdx}
-                    onClick={() => sendMessage(chip)}
-                    className="text-xs bg-slate-800 hover:bg-slate-600 text-amber-300 border border-slate-600 px-3 py-1.5 rounded-full transition-colors text-left"
-                  >
-                    💬 {chip}
-                  </button>
-                ))}
-              </div>
-            )}
+            {msg.structured.suggested_followups &&
+              msg.structured.suggested_followups.length > 0 && (
+                <div className="pt-2 border-t border-slate-600/50 flex flex-wrap gap-2">
+                  {msg.structured.suggested_followups.map((chip, cIdx) => (
+                    <button
+                      key={cIdx}
+                      onClick={() => sendMessage(chip)}
+                      className="text-xs bg-slate-800 hover:bg-slate-600 text-amber-300 border border-slate-600 px-3 py-1.5 rounded-full transition-colors text-left"
+                    >
+                      💬 {chip}
+                    </button>
+                  ))}
+                </div>
+              )}
           </div>
         )}
 

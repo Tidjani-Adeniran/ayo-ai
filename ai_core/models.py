@@ -1,6 +1,7 @@
 import os
 from django.db import models
 from django.contrib.auth.models import User
+from pgvector.django import VectorField, HnswIndex
 
 
 class Conversation(models.Model):
@@ -90,7 +91,7 @@ class Document(models.Model):
                         document=self,
                         chunk_index=index,
                         content=chunk_content,
-                        embedding=vector  # Stored in JSONField
+                        embedding=vector
                     )
                 )
 
@@ -111,11 +112,21 @@ class DocumentChunk(models.Model):
     document = models.ForeignKey(Document, on_delete=models.CASCADE, related_name='chunks')
     chunk_index = models.IntegerField()
     content = models.TextField()
-    embedding = models.JSONField(null=True, blank=True)
+    # 768 dimensions for Gemini text-embedding-004
+    embedding = VectorField(dimensions=768, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['chunk_index']
+        indexes = [
+            HnswIndex(
+                name='docchunk_embedding_hnsw_idx',
+                fields=['embedding'],
+                m=16,
+                ef_construction=64,
+                opclasses=['vector_cosine_ops'],
+            ),
+        ]
 
     def __str__(self):
         return f"{self.document.title} - Chunk {self.chunk_index}"
