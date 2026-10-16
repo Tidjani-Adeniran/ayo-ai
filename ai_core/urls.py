@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .views import (
     chat_view,
+    journal_list_create_view,
     register_view,
     DocumentUploadView,
     list_conversations_view,
@@ -18,4 +19,5 @@ urlpatterns = [
     path('conversations/', list_conversations_view, name='list_conversations'),
     path('conversations/<int:conversation_id>/', get_conversation_messages_view, name='get_conversation_messages'),
     path('conversations/<int:conversation_id>/delete/', delete_conversation_view, name='delete_conversation'),
+    path('api/journal/', journal_list_create_view, name='journal-list-create'),
 ]

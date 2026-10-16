@@ -15,8 +15,10 @@ from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 
 from .models import Conversation, ChatMessage, Document, DocumentChunk
-from .serializers import DocumentSerializer
+from .serializers import DocumentSerializer,JournalSerializer
 from .utils import search_similar_chunks, generate_conversational_query
+from .models import JournalEntry
+
 
 load_dotenv()
 
@@ -290,4 +292,28 @@ class DocumentUploadView(APIView):
                 status=status.HTTP_201_CREATED
             )
 
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    
+@api_view(['GET', 'POST'])
+@permission_classes([IsAuthenticated])
+def journal_list_create_view(request):
+    """
+    GET: Retrieves all private journal entries for the authenticated user.
+    POST: Creates a new private journal entry for the authenticated user.
+    """
+    if request.method == 'GET':
+        entries = JournalEntry.objects.filter(user=request.user).order_by('-created_at')
+        serializer = JournalSerializer(entries, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    elif request.method == 'POST':
+        serializer = JournalSerializer(data=request.data)
+        if serializer.is_valid():
+            # Automatically assign the entry to the authenticated user
+            serializer.save(user=request.user)
+            return Response(
+                {"message": "Journal entry saved successfully!", "entry": serializer.data},
+                status=status.HTTP_201_CREATED
+            )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
