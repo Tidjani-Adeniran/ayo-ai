@@ -78,7 +78,7 @@ def chat_view(request):
     2. Uses Conversational RAG to rewrite follow-up queries.
     3. Retrieves public Knowledge Base chunks (Knowledge RAG).
     4. Retrieves private Journal Entries (Personal RAG) strictly isolated for request.user.
-    5. Equips Gemini with agentic tools (e.g., auto-creating journal entries).
+    5. Equips Gemini with agentic tools and automatic function calling (AFC).
     6. Generates structured response using Gemini with full citations.
     """
     user_message = request.data.get('message', '')
@@ -192,16 +192,32 @@ def chat_view(request):
                 ),
             )
             
+            # Robust JSON response parsing for agent loops
+            response_data = None
+            if isinstance(response.text, str):
+                try:
+                    response_data = json.loads(response.text)
+                except json.JSONDecodeError:
+                    response_data = {
+                        "greeting": "Warm greetings, my friend.",
+                        "reflection": response.text,
+                        "actionable_suggestion": None,
+                        "culturally_grounded_wisdom": None,
+                        "suggested_followups": ["Tell me more", "How are you today?"]
+                    }
+            else:
+                response_data = response.text
+
             # Save Ayo AI response to DB
             ChatMessage.objects.create(
                 conversation=conversation,
                 sender='ayo',
-                content=response.text
+                content=json.dumps(response_data) if isinstance(response_data, dict) else str(response_data)
             )
 
             return Response({
                 "conversation_id": conversation.id,
-                "structured_data": json.loads(response.text) if isinstance(response.text, str) else response.text,
+                "structured_data": response_data,
                 "sources": sources_used,
                 "model_used": model_name
             }, status=status.HTTP_200_OK)
