@@ -17,6 +17,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from .models import Conversation, ChatMessage, Document, DocumentChunk, JournalEntry
 from .serializers import DocumentSerializer, JournalSerializer
 from .utils import search_similar_chunks, search_similar_journals, generate_conversational_query
+from .tools import create_journal_entry
 
 load_dotenv()
 
@@ -72,12 +73,13 @@ def register_view(request):
 @permission_classes([IsAuthenticated])
 def chat_view(request):
     """
-    Authenticated chat endpoint with Multi-Source RAG:
+    Authenticated agentic chat endpoint with Multi-Source RAG and Gemini Tool Calling:
     1. Saves message history to DB.
     2. Uses Conversational RAG to rewrite follow-up queries.
     3. Retrieves public Knowledge Base chunks (Knowledge RAG).
     4. Retrieves private Journal Entries (Personal RAG) strictly isolated for request.user.
-    5. Generates structured response using Gemini with full citations.
+    5. Equips Gemini with agentic tools (e.g., auto-creating journal entries).
+    6. Generates structured response using Gemini with full citations.
     """
     user_message = request.data.get('message', '')
     conversation_id = request.data.get('conversation_id', None)
@@ -148,7 +150,7 @@ def chat_view(request):
                 "score": round(entry['similarity_score'] * 100, 1)
             })
 
-    # Persona and grounding instructions
+    # Persona, grounding, and tool usage instructions
     system_instruction = (
         "You are ayo-ai, a warm, empathetic, non-clinical African wellbeing companion. "
         "Always remain in persona as ayo-ai. "
@@ -157,8 +159,14 @@ def chat_view(request):
         "1. Personal Journal Context (if present): Prioritize the user's lived experiences, emotional states, and preferences expressed in their private journal. Tailor your empathy directly to their personal reality.\n"
         "2. Knowledge Base Context (if present): Use uploaded wellbeing documents as supporting evidence-based guidance to offer gentle, practical suggestions.\n"
         "3. Conflict Resolution: If general guidance conflicts with personal journal context (e.g., recommended activities vs. noted personal constraints), gently respect the user's personal context first.\n"
-        "4. Tone: Keep responses warm, conversational, and culturally grounded. Avoid clinical jargon or mechanical restatements of context."
+        "4. Tone: Keep responses warm, conversational, and culturally grounded. Avoid clinical jargon or mechanical restatements of context.\n"
+        "5. Tool Usage: If the user explicitly asks to save, record, or log a reflection or thought into their journal, use the provided journal creation tool."
     )
+
+    # Agentic Tool Definition: Bind tool execution to the authenticated request.user
+    def bound_create_journal_entry(title: str, content: str) -> dict:
+        """Creates and saves a new private journal entry for the user."""
+        return create_journal_entry(request.user, title=title, content=content)
 
     client = genai.Client(api_key=api_key)
     prompt = (
@@ -178,6 +186,7 @@ def chat_view(request):
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
+                    tools=[bound_create_journal_entry],
                     response_mime_type="application/json",
                     response_schema=AyoWellbeingResponse,
                 ),
