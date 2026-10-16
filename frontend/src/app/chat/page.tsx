@@ -10,8 +10,9 @@ import ChatInput from "@/components/ChatInput";
 import DocumentUploadModal from "@/components/DocumentUploadModal";
 import Sidebar from "@/components/Sidebar";
 
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+).replace(/\/$/, "");
 
 export default function ChatPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -22,7 +23,6 @@ export default function ChatPage() {
 
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([
-    
     {
       sender: "ayo",
       text: "Warm greetings! I am ayo-ai. Please log in or register to begin our wellbeing conversation.",
@@ -64,10 +64,8 @@ export default function ChatPage() {
     e.preventDefault();
     setAuthError("");
 
-    const endpoint =
-      isAuthMode === "login"
-        ? "http://127.0.0.1:8000/api/auth/login/"
-        : "http://127.0.0.1:8000/api/auth/register/";
+    const path = isAuthMode === "login" ? "/api/auth/login/" : "/api/auth/register/";
+    const endpoint = `${API_BASE_URL}${path}`;
 
     try {
       const res = await fetch(endpoint, {
@@ -131,7 +129,7 @@ export default function ChatPage() {
     setLoading(true);
     try {
       const res = await fetch(
-        `http://127.0.0.1:8000/api/conversations/${convId}/`,
+        `${API_BASE_URL}/api/conversations/${convId}/`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -170,7 +168,7 @@ export default function ChatPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/chat/", {
+      const res = await fetch(`${API_BASE_URL}/api/chat/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
