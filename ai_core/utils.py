@@ -87,7 +87,6 @@ def generate_embedding(text: str) -> list[float]:
     client = get_genai_client()
 
     try:
-        # Use the correct current embedding model name with explicit output dimensionality if needed
         response = client.models.embed_content(
             model="gemini-embedding-001",
             contents=text,
@@ -98,8 +97,38 @@ def generate_embedding(text: str) -> list[float]:
         return []
     except Exception as e:
         print(f"Embedding API Error: {e}")
-        # Return empty list gracefully to prevent breaking basic unindexed chats
         return []
+
+
+def generate_conversational_query(user_query: str, history_context: str) -> str:
+    """
+    Phase 11: Rewrites a follow-up user query into a standalone search query 
+    using conversation history so pgvector can retrieve relevant chunks.
+    """
+    if not history_context or not history_context.strip():
+        return user_query
+
+    client = get_genai_client()
+    prompt = f"""Given the conversation history below, rewrite the latest user input into a clear, standalone search query that resolves any pronouns or missing context (e.g., 'it', 'that tea', 'that exercise'). Return ONLY the rewritten standalone query, with no extra pleasantries or quotation marks.
+
+Conversation History:
+{history_context}
+
+Latest User Input: {user_query}
+
+Standalone Search Query:"""
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        rewritten = response.text.strip() if response.text else user_query
+        print(f"🔄 Original Query: '{user_query}' --> Rewritten Query: '{rewritten}'")
+        return rewritten
+    except Exception as e:
+        print(f"Query Rewriting Error: {e}")
+        return user_query
 
 
 def search_similar_chunks(query: str, top_k: int = 3) -> list[dict]:
@@ -115,7 +144,6 @@ def search_similar_chunks(query: str, top_k: int = 3) -> list[dict]:
     if not query_vector:
         return []
 
-    # Native pgvector HNSW query execution in Neon PostgreSQL
     chunks = (
         DocumentChunk.objects
         .exclude(embedding__isnull=True)
@@ -125,7 +153,6 @@ def search_similar_chunks(query: str, top_k: int = 3) -> list[dict]:
 
     results = []
     for chunk in chunks:
-        # Convert cosine distance (0.0 = identical) to similarity score (1.0 = identical)
         similarity = 1.0 - float(chunk.distance)
         results.append({
             'chunk_id': chunk.id,
@@ -147,7 +174,6 @@ def generate_rag_response(user_query: str, top_k: int = 3) -> str:
     """
     client = get_genai_client()
     
-    # 1. Retrieve relevant chunks
     matched_chunks = search_similar_chunks(user_query, top_k=top_k)
     
     if not matched_chunks:
@@ -157,7 +183,6 @@ def generate_rag_response(user_query: str, top_k: int = 3) -> str:
             [f"[Document Chunk {i+1}]: {item['content']}" for i, item in enumerate(matched_chunks)]
         )
 
-    # 2. Build the RAG Grounded System Prompt
     rag_prompt = f"""You are ayo-ai, an empathetic and culturally grounded wellbeing companion.
 Answer the user's question using ONLY the provided context passages below.
 If the context does not contain enough information to answer fully, answer using what is available and gently note any limitation.

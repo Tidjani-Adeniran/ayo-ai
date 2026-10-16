@@ -16,7 +16,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 
 from .models import Conversation, ChatMessage, Document, DocumentChunk
 from .serializers import DocumentSerializer
-from .utils import search_similar_chunks
+from .utils import search_similar_chunks, generate_conversational_query
 
 load_dotenv()
 
@@ -73,7 +73,7 @@ def register_view(request):
 def chat_view(request):
     """
     Authenticated chat endpoint. Saves message history to DB,
-    retrieves top matching document excerpts (RAG), and generates
+    retrieves top matching document excerpts using Conversational RAG, and generates
     a structured response using Gemini with source document citations.
     """
     user_message = request.data.get('message', '')
@@ -116,8 +116,11 @@ def chat_view(request):
     for msg in reversed(list(recent_messages)):
         history_context += f"{msg.sender.upper()}: {msg.content}\n"
 
-    # Semantic search: Retrieve top 2 document chunks related to the user message
-    matching_chunks = search_similar_chunks(user_message, top_k=2)
+    # Conversational RAG: Rewrite follow-up query into a standalone search query
+    search_query = generate_conversational_query(user_message, history_context)
+
+    # Semantic search: Retrieve top 2 document chunks related to the rewritten search query
+    matching_chunks = search_similar_chunks(search_query, top_k=2)
     doc_context = ""
     sources_used = []
 
