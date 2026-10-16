@@ -1,0 +1,1 @@
+web: gunicorn ayo_ai.wsgi:application

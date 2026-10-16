@@ -79,7 +79,7 @@ def chat_view(request):
     3. Retrieves public Knowledge Base chunks (Knowledge RAG).
     4. Retrieves private Journal Entries (Personal RAG) strictly isolated for request.user.
     5. Equips Gemini with agentic tools and automatic function calling (AFC).
-    6. Generates structured response using Gemini with full citations.
+    6. Generates response using Gemini with full citations.
     """
     user_message = request.data.get('message', '')
     conversation_id = request.data.get('conversation_id', None)
@@ -104,7 +104,6 @@ def chat_view(request):
         except Conversation.DoesNotExist:
             return Response({"error": "Conversation not found."}, status=status.HTTP_404_NOT_FOUND)
     else:
-        # Create a new conversation session
         title_snippet = user_message[:30] + "..." if len(user_message) > 30 else user_message
         conversation = Conversation.objects.create(user=request.user, title=title_snippet)
 
@@ -166,7 +165,7 @@ def chat_view(request):
     # Agentic Tool Definition: Bind tool execution to the authenticated request.user
     def bound_create_journal_entry(title: str, content: str) -> dict:
         """Creates and saves a new private journal entry for the user."""
-        return create_journal_entry(request.user, title=title, content=content)
+        return create_journal_entry(title=title, content=content, user=request.user)
 
     client = genai.Client(api_key=api_key)
     prompt = (
@@ -176,7 +175,8 @@ def chat_view(request):
         f"Respond naturally to the user's latest input: {user_message}"
     )
 
-    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    # Updated active supported models list (omitting deprecated legacy versions)
+    models_to_try = ["gemini-2.5-flash", "gemini-3.8-flash"]
     
     last_error = None
     for model_name in models_to_try:
@@ -187,26 +187,24 @@ def chat_view(request):
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     tools=[bound_create_journal_entry],
-                    response_mime_type="application/json",
-                    response_schema=AyoWellbeingResponse,
+                    # NOTE: response_mime_type removed here to support tool execution properly
                 ),
             )
             
-            # Robust JSON response parsing for agent loops
+            response_text = response.text or ""
             response_data = None
-            if isinstance(response.text, str):
-                try:
-                    response_data = json.loads(response.text)
-                except json.JSONDecodeError:
-                    response_data = {
-                        "greeting": "Warm greetings, my friend.",
-                        "reflection": response.text,
-                        "actionable_suggestion": None,
-                        "culturally_grounded_wisdom": None,
-                        "suggested_followups": ["Tell me more", "How are you today?"]
-                    }
-            else:
-                response_data = response.text
+            
+            try:
+                response_data = json.loads(response_text)
+            except json.JSONDecodeError:
+                # Fallback structure if model outputs conversational text directly during tool loops
+                response_data = {
+                    "greeting": "Warm greetings, my friend.",
+                    "reflection": response_text,
+                    "actionable_suggestion": None,
+                    "culturally_grounded_wisdom": None,
+                    "suggested_followups": ["Tell me more", "How are you today?"]
+                }
 
             # Save Ayo AI response to DB
             ChatMessage.objects.create(
@@ -307,7 +305,6 @@ class DocumentUploadView(APIView):
             doc = serializer.save(uploaded_by=request.user)
 
             try:
-                # Delegate text extraction, chunking, and embedding creation to model method
                 doc.process_and_chunk()
             except Exception as e:
                 doc.status = 'failed'
@@ -350,7 +347,6 @@ def journal_list_create_view(request):
     elif request.method == 'POST':
         serializer = JournalSerializer(data=request.data)
         if serializer.is_valid():
-            # Automatically assign the entry to the authenticated user (triggers save() embedding creation)
             serializer.save(user=request.user)
             return Response(
                 {"message": "Journal entry saved successfully!", "entry": serializer.data},
