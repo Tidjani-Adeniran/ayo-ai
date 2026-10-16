@@ -22,6 +22,7 @@ export default function ChatPage() {
 
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([
+    
     {
       sender: "ayo",
       text: "Warm greetings! I am ayo-ai. Please log in or register to begin our wellbeing conversation.",
