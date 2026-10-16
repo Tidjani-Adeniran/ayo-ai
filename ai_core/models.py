@@ -142,3 +142,25 @@ class JournalEntry(models.Model):
 
     def __str__(self):
         return f"Journal by {self.user.username} on {self.created_at.strftime('%Y-%m-%d')}"
+    
+    
+class JournalEntry(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='journal_entries')
+    title = models.CharField(max_length=255, blank=True, null=True)
+    content = models.TextField()
+    # Add vector field for Personal RAG semantic search (768 dimensions for Gemini)
+    embedding = VectorField(dimensions=768, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        """Automatically generate embedding when journal entry is saved or updated."""
+        from .utils import generate_embedding
+        # Combine title and content for rich semantic representation
+        text_to_embed = f"{self.title or ''} {self.content}".strip()
+        if text_to_embed:
+            self.embedding = generate_embedding(text_to_embed)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Journal by {self.user.username} on {self.created_at.strftime('%Y-%m-%d')}"

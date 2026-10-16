@@ -204,3 +204,40 @@ ANSWER:"""
     except Exception as e:
         print(f"RAG Generation Error: {e}")
         return "I encountered an error while referencing my knowledge base. Please try again."
+    
+    
+def search_similar_journals(user, query: str, top_k: int = 2) -> list[dict]:
+    """
+    Performs Personal RAG:
+    1. Converts user prompt into a 768-dimensional query vector.
+    2. Queries Neon PostgreSQL for the authenticated user's journal entries using pgvector (CosineDistance).
+    3. Enforces strict user data isolation so users only search their own private entries.
+    """
+    from pgvector.django import CosineDistance
+    from .models import JournalEntry
+
+    query_vector = generate_embedding(query)
+    if not query_vector:
+        return []
+
+    # CRITICAL SECURITY FILTER: .filter(user=user) ensures data isolation
+    entries = (
+        JournalEntry.objects
+        .filter(user=user)
+        .exclude(embedding__isnull=True)
+        .annotate(distance=CosineDistance('embedding', query_vector))
+        .order_by('distance')[:top_k]
+    )
+
+    results = []
+    for entry in entries:
+        similarity = 1.0 - float(entry.distance)
+        results.append({
+            'entry_id': entry.id,
+            'title': entry.title or "Untitled Reflection",
+            'content': entry.content,
+            'similarity_score': round(similarity, 4),
+            'created_at': entry.created_at.strftime("%Y-%m-%d")
+        })
+
+    return results

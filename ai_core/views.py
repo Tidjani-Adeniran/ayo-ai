@@ -14,11 +14,9 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 
-from .models import Conversation, ChatMessage, Document, DocumentChunk
-from .serializers import DocumentSerializer,JournalSerializer
-from .utils import search_similar_chunks, generate_conversational_query
-from .models import JournalEntry
-
+from .models import Conversation, ChatMessage, Document, DocumentChunk, JournalEntry
+from .serializers import DocumentSerializer, JournalSerializer
+from .utils import search_similar_chunks, search_similar_journals, generate_conversational_query
 
 load_dotenv()
 
@@ -74,9 +72,12 @@ def register_view(request):
 @permission_classes([IsAuthenticated])
 def chat_view(request):
     """
-    Authenticated chat endpoint. Saves message history to DB,
-    retrieves top matching document excerpts using Conversational RAG, and generates
-    a structured response using Gemini with source document citations.
+    Authenticated chat endpoint with Multi-Source RAG:
+    1. Saves message history to DB.
+    2. Uses Conversational RAG to rewrite follow-up queries.
+    3. Retrieves public Knowledge Base chunks (Knowledge RAG).
+    4. Retrieves private Journal Entries (Personal RAG) strictly isolated for request.user.
+    5. Generates structured response using Gemini with full citations.
     """
     user_message = request.data.get('message', '')
     conversation_id = request.data.get('conversation_id', None)
@@ -121,20 +122,30 @@ def chat_view(request):
     # Conversational RAG: Rewrite follow-up query into a standalone search query
     search_query = generate_conversational_query(user_message, history_context)
 
-    # Semantic search: Retrieve top 2 document chunks related to the rewritten search query
-    matching_chunks = search_similar_chunks(search_query, top_k=2)
-    doc_context = ""
     sources_used = []
 
+    # 1. Knowledge RAG: Search Public Document Chunks
+    matching_chunks = search_similar_chunks(search_query, top_k=2)
+    doc_context = ""
     if matching_chunks:
         doc_context = "Relevant Uploaded Document Context:\n"
         for chunk in matching_chunks:
             doc_context += f"--- [{chunk['document_title']}] (Similarity: {chunk['similarity_score']:.2f}) ---\n{chunk['content']}\n\n"
-            
-            # Format sources for frontend citation badges
             sources_used.append({
                 "title": chunk["document_title"],
-                "score": round(chunk["similarity_score"] * 100, 1)  # Convert to percentage
+                "score": round(chunk["similarity_score"] * 100, 1)
+            })
+
+    # 2. Personal RAG: Search Private User Journal Entries (User Isolated)
+    matching_journals = search_similar_journals(request.user, search_query, top_k=2)
+    journal_context = ""
+    if matching_journals:
+        journal_context = "Relevant Excerpts from User's Private Journal:\n"
+        for entry in matching_journals:
+            journal_context += f"--- [Private Journal: {entry['title']} ({entry['created_at']})] (Similarity: {entry['similarity_score']:.2f}) ---\n{entry['content']}\n\n"
+            sources_used.append({
+                "title": f"Journal: {entry['title']}",
+                "score": round(entry['similarity_score'] * 100, 1)
             })
 
     # Persona and grounding instructions
@@ -142,13 +153,14 @@ def chat_view(request):
         "You are ayo-ai, a warm, empathetic, non-clinical African wellbeing companion. "
         "Always remain in persona as ayo-ai. "
         "Never say 'I am an AI created by Google', 'I am a robot', or 'As an artificial intelligence'. "
-        "When relevant uploaded document context is provided, use it to accurately inform your guidance. "
-        "When the user engages in small talk or simple greetings, keep your response lightweight and human-like."
+        "When relevant document or journal context is provided, use it to accurately inform your guidance. "
+        "Respect the user's personal journal reflections with warmth, care, and privacy."
     )
 
     client = genai.Client(api_key=api_key)
     prompt = (
         f"{doc_context}"
+        f"{journal_context}"
         f"Recent Conversation History:\n{history_context}\n"
         f"Respond naturally to the user's latest input: {user_message}"
     )
@@ -293,8 +305,8 @@ class DocumentUploadView(APIView):
             )
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    
+
+
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated])
 def journal_list_create_view(request):
@@ -310,7 +322,7 @@ def journal_list_create_view(request):
     elif request.method == 'POST':
         serializer = JournalSerializer(data=request.data)
         if serializer.is_valid():
-            # Automatically assign the entry to the authenticated user
+            # Automatically assign the entry to the authenticated user (triggers save() embedding creation)
             serializer.save(user=request.user)
             return Response(
                 {"message": "Journal entry saved successfully!", "entry": serializer.data},
