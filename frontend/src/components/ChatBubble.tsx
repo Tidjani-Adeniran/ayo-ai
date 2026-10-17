@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export interface CitationSource {
   title: string;
@@ -32,38 +34,60 @@ export default function ChatBubble({ msg, sendMessage }: ChatBubbleProps) {
   const isUser = msg.sender === "user";
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"} my-1.5`}>
       <div
-        className={`max-w-[85%] rounded-2xl p-4 text-sm ${
+        className={`max-w-[88%] sm:max-w-[80%] rounded-2xl p-4 text-sm ${
           isUser
             ? "bg-amber-600 text-white rounded-br-none"
             : "bg-slate-700 text-slate-100 rounded-bl-none border border-slate-600 space-y-3"
         }`}
       >
-        {msg.text && <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>}
+        {/* Standard Text Response - Formatted with Markdown */}
+        {msg.text && (
+          <div className={isUser ? "whitespace-pre-wrap" : "prose prose-invert max-w-none text-xs sm:text-sm prose-p:my-1.5 prose-p:leading-relaxed prose-headings:text-amber-400 prose-headings:font-bold prose-strong:text-amber-300 prose-ul:my-1.5 prose-ul:list-disc prose-ul:pl-4 prose-ol:my-1.5 prose-ol:list-decimal prose-ol:pl-4 prose-li:my-0.5"}>
+            {isUser ? (
+              msg.text
+            ) : (
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {msg.text}
+              </ReactMarkdown>
+            )}
+          </div>
+        )}
 
+        {/* Structured AI Responses */}
         {msg.structured && (
           <div className="space-y-3">
             {msg.structured.greeting && (
-              <p className="font-semibold text-amber-400">
-                {msg.structured.greeting}
-              </p>
+              <div className="font-semibold text-amber-400 text-sm sm:text-base">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {msg.structured.greeting}
+                </ReactMarkdown>
+              </div>
             )}
 
             {msg.structured.reflection && (
-              <p className="text-slate-200">{msg.structured.reflection}</p>
+              <div className="text-slate-200 prose prose-invert max-w-none text-xs sm:text-sm prose-p:my-1 prose-strong:text-amber-300">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {msg.structured.reflection}
+                </ReactMarkdown>
+              </div>
             )}
 
             {msg.structured.culturally_grounded_wisdom?.trim() && (
-              <div className="bg-slate-800/60 p-3 rounded-lg border-l-4 border-amber-500 text-xs text-slate-300 italic">
-                "{msg.structured.culturally_grounded_wisdom}"
+              <div className="bg-slate-800/80 p-3 rounded-lg border-l-4 border-amber-500 text-xs text-slate-300 italic shadow-inner">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {`"${msg.structured.culturally_grounded_wisdom}"`}
+                </ReactMarkdown>
               </div>
             )}
 
             {msg.structured.actionable_suggestion?.trim() && (
-              <div className="bg-amber-950/40 p-3 rounded-lg border border-amber-800/40 text-xs text-amber-200">
-                <strong>Suggestion:</strong>{" "}
-                {msg.structured.actionable_suggestion}
+              <div className="bg-amber-950/40 p-3 rounded-lg border border-amber-800/50 text-xs text-amber-200 prose prose-invert max-w-none prose-strong:text-amber-300">
+                <strong className="text-amber-400">Suggestion:</strong>{" "}
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {msg.structured.actionable_suggestion}
+                </ReactMarkdown>
               </div>
             )}
 
@@ -103,7 +127,7 @@ export default function ChatBubble({ msg, sendMessage }: ChatBubbleProps) {
             </button>
 
             {showSources && (
-              <div className="mt-2 space-y-1.5">
+              <div className="mt-2 space-y-1.5 animate-in fade-in duration-150">
                 {msg.sources.map((src, i) => (
                   <div
                     key={i}

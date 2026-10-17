@@ -99,6 +99,10 @@ export default function ChatPage() {
       if (data.access) {
         localStorage.setItem("ayo_access_token", data.access);
         setToken(data.access);
+
+        // 🔔 Dispatch custom auth event to update top Navbar instantly!
+        window.dispatchEvent(new Event("auth-changed"));
+
         setMessages([
           {
             sender: "ayo",
@@ -115,6 +119,10 @@ export default function ChatPage() {
     localStorage.removeItem("ayo_access_token");
     setToken(null);
     setConversationId(null);
+
+    // 🔔 Notify top Navbar that session has ended
+    window.dispatchEvent(new Event("auth-changed"));
+
     setMessages([
       {
         sender: "ayo",
@@ -256,41 +264,28 @@ export default function ChatPage() {
   };
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-900 text-slate-100 flex flex-col items-center p-4 sm:p-6">
-      {/* Header */}
-      <header className="w-full max-w-3xl py-4 border-b border-slate-800 mb-6 flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-amber-500">ayo-ai</h1>
-          <p className="text-xs text-slate-400">
-            Culturally Grounded Wellbeing Companion
-          </p>
+    <main className="min-h-[calc(100vh-5rem)] bg-slate-900 text-slate-100 flex flex-col items-center p-2 sm:p-4 w-full max-w-full overflow-x-hidden">
+      
+      {/* Utility Bar inside chat when logged in (History & Upload PDF) */}
+      {token && (
+        <div className="w-full max-w-3xl py-2 mb-2 flex items-center justify-end gap-2">
+          <button
+            onClick={() => setIsSidebarOpen(true)}
+            className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            <span>📜</span> <span>History</span>
+          </button>
+          <button
+            onClick={() => setIsUploadOpen(true)}
+            className="text-xs bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/40 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
+          >
+            <span>📂</span> <span>Upload PDF</span>
+          </button>
         </div>
-        {token && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsSidebarOpen(true)}
-              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
-            >
-              <span>📜</span> History
-            </button>
-            <button
-              onClick={() => setIsUploadOpen(true)}
-              className="text-xs bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 border border-amber-500/40 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5"
-            >
-              <span>📂</span> Upload PDF
-            </button>
-            <button
-              onClick={handleLogout}
-              className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              Log Out
-            </button>
-          </div>
-        )}
-      </header>
+      )}
 
       {/* Main Content Area */}
-      <section className="w-full max-w-3xl flex-1 bg-slate-800 rounded-xl shadow-xl border border-slate-700 flex flex-col overflow-hidden min-h-[550px] max-h-[75vh]">
+      <section className="w-full max-w-3xl flex-1 bg-slate-800 rounded-xl shadow-xl border border-slate-700 flex flex-col overflow-hidden h-[calc(100vh-100px)] sm:h-[82vh]">
         {!token ? (
           <AuthForm
             isAuthMode={isAuthMode}
@@ -306,14 +301,14 @@ export default function ChatPage() {
         ) : (
           <>
             {/* Messages Stream */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4">
               {messages.map((msg, idx) => (
                 <ChatBubble key={idx} msg={msg} sendMessage={sendMessage} />
               ))}
 
               {loading && (
                 <div className="flex justify-start">
-                  <div className="bg-slate-700 text-slate-400 rounded-2xl px-4 py-3 text-sm animate-pulse border border-slate-600">
+                  <div className="bg-slate-700 text-slate-400 rounded-2xl px-4 py-2.5 text-xs sm:text-sm animate-pulse border border-slate-600">
                     ayo-ai is reflecting...
                   </div>
                 </div>
