@@ -329,7 +329,3 @@ I built Ayo AI to explore how RAG, embeddings, vector search, and agentic system
 - **LinkedIn:** [Adeniran Tidjani](https://www.linkedin.com/in/adeniran-tidjani-3a6a0224a)
 
 ---
-
-## 📄 License
-
-A license has not yet been specified. Add a `LICENSE` file and update this section once you have chosen the terms under which others may use, modify, and distribute the project.
