@@ -45,7 +45,7 @@ export default function AboutPage() {
           <Link href="/chat" className="bg-amber-700 hover:bg-amber-800 text-white font-medium px-6 py-3 rounded-xl transition shadow-sm">
             Experience ayo-ai Chat
           </Link>
-          <a href="https://github.com/your-github" target="_blank" rel="noopener noreferrer" className="bg-stone-100 hover:bg-stone-200 text-stone-800 font-medium px-6 py-3 rounded-xl transition">
+          <a href="https://github.com/Tidjani-Adeniran" target="_blank" rel="noopener noreferrer" className="bg-stone-100 hover:bg-stone-200 text-stone-800 font-medium px-6 py-3 rounded-xl transition">
             GitHub Profile
           </a>
         </div>
